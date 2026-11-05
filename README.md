@@ -15,6 +15,161 @@ reboots into the other assistant (~5 seconds).
 source on 2026-11-05, but has not been built or run on a device. Work through
 [Test first](#test-first) before relying on it.
 
+## Setup
+
+These steps are untested, like the rest of this design. Step 4 erases the device,
+so read [What you give up](#what-you-give-up--read-before-building) first.
+
+**You'll need:**
+
+- A Voice PE and a USB-C cable that carries data
+- A computer running macOS or Linux, which the Muse SDK requires
+- [ESP-IDF v6.0.3](https://docs.espressif.com/projects/esp-idf/en/v6.0.3/esp32s3/get-started/linux-macos-setup.html),
+  installed at `~/esp/esp-idf-v6` with `esp32s3` support
+- ESPHome 2026.9.0 or newer (`pip install esphome`)
+- An [SDK token](https://gadgets.muse.ai/settings/sdk-tokens) and the Muse app
+- Home Assistant
+
+### 1. Get the sources
+
+Clone all three repos into the same folder, and run later steps from that folder
+unless they say otherwise:
+
+```bash
+git clone https://github.com/kbaker827/voice-pe-dual-boot.git
+git clone https://github.com/facebookincubator/muse-gadget-sdk.git
+git clone https://github.com/esphome/home-assistant-voice-pe.git
+```
+
+### 2. Build Muse
+
+Copy in the shared files:
+
+```bash
+cp voice-pe-dual-boot/partitions_dualboot.csv muse-gadget-sdk/esp32/
+cp voice-pe-dual-boot/ota_switch.h muse-gadget-sdk/esp32/main/
+```
+
+Then make two edits in `muse-gadget-sdk/esp32`:
+
+1. Append the Muse settings from [Build changes](#build-changes) to
+   `devices/sdkconfig.home-assistant-voice`.
+2. In `main/app.c`, add `#include "ota_switch.h"` and change the double-press
+   handler to:
+
+   ```c
+   static void on_button_double_press(void) {
+       dualboot_switch_to_esphome();
+   }
+   ```
+
+Build it, with a clean build folder so the new settings apply:
+
+```bash
+. ~/esp/esp-idf-v6/export.sh
+cd muse-gadget-sdk/esp32
+rm -rf build-home-assistant-voice
+tools/board.sh home-assistant-voice build
+cd ../..
+```
+
+### 3. Build ESPHome
+
+Copy in the shared files:
+
+```bash
+cp voice-pe-dual-boot/partitions_dualboot.csv home-assistant-voice-pe/
+cp voice-pe-dual-boot/ota_switch.h home-assistant-voice-pe/
+```
+
+Then edit `home-assistant-voice-pe/home-assistant-voice.yaml`, adding to the
+blocks already there rather than creating duplicates:
+
+1. Delete the `ota:` block.
+2. Add the `esp32:` settings from [Build changes](#build-changes).
+3. Add the `includes:` entry, template button and `on_multi_click` entry from
+   [The switch](#the-switch).
+4. Add your Wi-Fi network under the `wifi:` block. This base config has no
+   setup-over-Bluetooth step:
+
+   ```yaml
+   wifi:
+     ssid: !secret wifi_ssid
+     password: !secret wifi_password
+   ```
+
+Put those values in `home-assistant-voice-pe/secrets.yaml`, and keep that file out
+of any public repo:
+
+```yaml
+wifi_ssid: "your network"
+wifi_password: "your password"
+```
+
+In a **new terminal**, without the ESP-IDF environment loaded, build it and list
+the files you'll flash:
+
+```bash
+cd home-assistant-voice-pe
+esphome compile home-assistant-voice.yaml
+find .esphome/build -name firmware.ota.bin -o -name bootloader.bin
+cd ..
+```
+
+### 4. Flash the device
+
+Connect the Voice PE over USB. If esptool can't connect, unplug it, then hold the
+centre button while plugging it back in.
+
+Run the two commands under [First flash](#first-flash-usb-one-time), replacing
+the port with yours and using these files:
+
+| In the command | File |
+|---|---|
+| `bootloader.bin` | The `bootloader.bin` found in step 3 |
+| `partition-table.bin` | `muse-gadget-sdk/esp32/build-home-assistant-voice/partition_table/partition-table.bin` |
+| `muse-gadget.bin` | `muse-gadget-sdk/esp32/build-home-assistant-voice/muse-gadget.bin` |
+| `firmware.ota.bin` | The `firmware.ota.bin` found in step 3 |
+
+Always flash with esptool. `tools/board.sh ... flash` only writes Muse's files and
+can reset which slot boots.
+
+### 5. Set up Muse
+
+The device starts in Muse. Open its console, send your token as a line in the form
+`>sdk_token=mgst_…`, and wait for `@sdk_token ok`. Press `Ctrl-]` to quit.
+
+```bash
+cd muse-gadget-sdk/esp32
+tools/board.sh home-assistant-voice monitor /dev/ttyACM0
+cd ../..
+```
+
+In the Muse app, turn on **Settings > Devices > Developer mode**, then go to
+**Settings > Devices > Add Device**. Choose `MuseGadget-ha-voice-XXXXXX`, and
+briefly press the centre button when asked to confirm. Muse connects to Wi-Fi
+through this setup.
+
+The token is stored in the shared `nvs` partition, so send it again after an
+ESPHome factory reset or a full erase.
+
+### 6. Set up ESPHome
+
+Double-press the centre button to switch. The first boot may update the XMOS
+firmware, so leave the device powered until it finishes.
+
+Add the device in Home Assistant under **Settings > Devices & services**. If it
+isn't discovered, add the ESPHome integration with the address
+`home-assistant-voice-XXXXXX.local`, using the end of the device's MAC address.
+
+### 7. Check it works
+
+Switch back to Muse with a click followed by a 3-second hold, or with the **Switch
+to Muse** button in Home Assistant. Then work through [Test first](#test-first).
+
+To update one firmware later, rebuild it and flash only its slot, as described
+under [What you give up](#what-you-give-up--read-before-building).
+
 ## Why this works on this hardware
 
 - The Voice PE is an ESP32-S3 with **16 MB flash** — both firmwares are
