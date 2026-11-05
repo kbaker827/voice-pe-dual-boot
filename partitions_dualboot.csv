@@ -1,0 +1,13 @@
+# Dual-boot partition table — Home Assistant Voice Preview Edition (ESP32-S3, 16 MB flash)
+# Shared by BOTH builds: the Muse gadget firmware (slot ota_0) and the ESPHome
+# Home Assistant voice firmware (slot ota_1). Partition table sits at the
+# standard ESP-IDF offset 0x8000 (set CONFIG_PARTITION_TABLE_OFFSET=0x8000 in
+# both builds — the Muse SDK defaults to 0x10000, so this must be overridden).
+#
+# Name,    Type, SubType, Offset,   Size,     Flags
+nvs,       data, nvs,     0x9000,   0x6000,
+otadata,   data, ota,     0xF000,   0x2000,
+phy_init,  data, phy,     0x11000,  0x1000,
+muse,      app,  ota_0,   0x20000,  0x700000,
+esphome,   app,  ota_1,   0x720000, 0x700000,
+storage,   data, spiffs,  0xE20000, 0x1E0000,
