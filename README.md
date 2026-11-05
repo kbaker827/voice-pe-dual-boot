@@ -30,6 +30,26 @@ so read [What you give up](#what-you-give-up--read-before-building) first.
 - An [SDK token](https://gadgets.muse.ai/settings/sdk-tokens) and the Muse app
 - Home Assistant
 
+### Automatic setup
+
+`setup.sh` does steps 1 to 4 for you on macOS or Linux. It asks for your Wi-Fi
+details once, and asks you to type `ERASE` before it erases the device. Plug in
+the Voice PE, then run:
+
+```bash
+git clone https://github.com/kbaker827/voice-pe-dual-boot.git
+cd voice-pe-dual-boot
+./setup.sh
+```
+
+The other repos are cloned next to this one. If a stage fails, you can rerun it
+on its own with `./setup.sh prepare`, `build` or `flash`, and `./setup.sh --help`
+lists the options.
+
+The script stops with an error if an upstream file has changed too much to patch.
+You still need to do steps 5 to 7 yourself, since they use the Muse app and Home
+Assistant. To do everything by hand instead, follow the steps below.
+
 ### 1. Get the sources
 
 Clone all three repos into the same folder, and run later steps from that folder
@@ -121,8 +141,8 @@ cd ..
 Connect the Voice PE over USB. If esptool can't connect, unplug it, then hold the
 centre button while plugging it back in.
 
-Run the two commands under [First flash](#first-flash-usb-one-time), replacing
-the port with yours and using these files:
+Run the command under [First flash](#first-flash-usb-one-time), replacing the
+port with yours and using these files:
 
 | In the command | File |
 |---|---|
@@ -314,15 +334,12 @@ esp32:
 ## First flash (USB, one time)
 
 This **erases the whole ESP32 flash**, including existing Wi-Fi and Home
-Assistant settings. Without it, old data can remain in `otadata` and `nvs`, since
-`write_flash` only touches the regions it's given.
+Assistant settings. Without `--erase-all`, old data can remain in `otadata` and
+`nvs`, since `write_flash` only touches the regions it's given. Keeping the erase
+in one command means a USB reset partway through can't leave the device blank.
 
 ```bash
-esptool.py --chip esp32s3 --port /dev/ttyACM0 erase_flash
-```
-
-```bash
-esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash \
+esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash --erase-all \
   0x0      bootloader.bin \
   0x8000   partition-table.bin \
   0x20000  muse-gadget.bin \
@@ -382,3 +399,6 @@ Stop at the first failure, since each step depends on the one before.
 - `partitions_dualboot.csv` — the shared partition table
 - `ota_switch.h` — the boot-partition switch helper used by both sides
 - `README.md` — this document
+- `setup.sh` — automates setup steps 1 to 4
+- `scripts/patch_sources.py` — the source changes `setup.sh` applies
+- `tests/` — tests for those changes (`python3 -m unittest discover tests`)
